@@ -1,0 +1,22 @@
+# Virtual environment
+venv/
+.venv/
+env/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local environment / secrets
+.env
+.env.local
+
+# Screenshots
+screenshot.png
+screenshot_*.png
+
+# macOS system files
+.DS_Store

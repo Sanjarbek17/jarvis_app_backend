@@ -1,0 +1,13 @@
+[Unit]
+Description=Phone Controller WebSocket Backend
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/phone_controller_backend
+ExecStart=/home/ubuntu/phone_controller_backend/venv/bin/python server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
