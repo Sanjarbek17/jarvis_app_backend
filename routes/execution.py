@@ -147,7 +147,9 @@ You will be given the user's overall goal, the history of steps, and a screensho
 Your job is to look at the screen and decide the next single step.
 
 Available actions:
-- {"action": "tap", "x": float, "y": float} -> Taps a location on the screen. Coordinates must be normalized (0.0 to 1.0).
+- {"action": "open", "text": "string"} -> Opens an application by name (e.g. "Telegram", "Maps", "Chrome"). Prefer this over coordinates for opening apps.
+- {"action": "click", "label": "string"} -> Finds and clicks a button or text label matching this string on the screen (e.g. "Chats", "Search", "Next"). Prefer this over coordinates for clicking text buttons.
+- {"action": "tap", "x": float, "y": float} -> Taps a location on the screen. Coordinates must be normalized (0.0 to 1.0). Use this if no clear text/label is available to click.
 - {"action": "swipe", "x": float, "y": float, "x2": float, "y2": float, "duration": int} -> Swipes from (x, y) to (x2, y2).
 - {"action": "write", "text": "string"} -> Types text into the focused input field.
 - {"action": "back"} -> Presses the back button.
@@ -155,13 +157,14 @@ Available actions:
 - {"action": "sleep", "duration": int} -> Wait/sleep for a duration in milliseconds.
 - {"action": "finish", "message": "string"} -> Stop when the goal is achieved or cannot proceed.
 
+Prefer using semantic actions like "open" or "click" (by text label) when applicable as they are much more robust than tapping normalized coordinates.
+
 Respond ONLY with a valid JSON object of the action, containing "thought" and "action" fields.
 Example response:
 {
-  "thought": "I need to open the Maps app, which is located in the middle-left of the screen.",
-  "action": "tap",
-  "x": 0.5,
-  "y": 0.4
+  "thought": "I want to open Telegram, so I'll use the open app action directly.",
+  "action": "open",
+  "text": "Telegram"
 }
 """
 
