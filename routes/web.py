@@ -458,6 +458,13 @@ async def get_dashboard():
                     </div>
                     
                     <div class="control-row">
+                        <div class="input-group">
+                            <label>Max Steps Limit</label>
+                            <input type="number" id="assistant-steps" value="15" min="1" max="100">
+                        </div>
+                    </div>
+                    
+                    <div class="control-row">
                         <button id="start-assistant-btn" class="btn" onclick="startAssistant()">Run AI Agent</button>
                         <button id="stop-assistant-btn" class="btn btn-secondary btn-danger" onclick="stopAssistant()" style="display: none;">Stop Agent</button>
                     </div>
@@ -812,11 +819,14 @@ async def get_dashboard():
                 let goal = promptInput.value.trim();
                 if (!goal) return alert("Please enter a command.");
 
+                let stepsInput = document.getElementById('assistant-steps');
+                let maxSteps = parseInt(stepsInput.value) || 15;
+
                 document.getElementById('start-assistant-btn').style.display = 'none';
                 document.getElementById('stop-assistant-btn').style.display = 'inline-flex';
 
                 try {
-                    let res = await fetch('/assistant/start?goal=' + encodeURIComponent(goal), { method: 'POST' });
+                    let res = await fetch('/assistant/start?goal=' + encodeURIComponent(goal) + '&max_steps=' + maxSteps, { method: 'POST' });
                     let data = await res.json();
                     if (data.status === 'success') {
                         promptInput.value = '';

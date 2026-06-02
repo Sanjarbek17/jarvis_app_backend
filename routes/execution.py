@@ -138,10 +138,9 @@ async def reset_accessibility():
 
 # --- AI Assistant Background Loop ---
 
-async def run_agent_loop(goal: str):
-    state.agent_logs = [f"Starting agent for goal: '{goal}'"]
+async def run_agent_loop(goal: str, max_steps: int = 15):
+    state.agent_logs = [f"Starting agent for goal: '{goal}' (limit: {max_steps} steps)"]
     history = []
-    max_steps = 15
     
     SYSTEM_PROMPT = """You are a phone assistant controller. You help users control their phone since their touchscreen is broken.
 You will be given the user's overall goal, the history of steps, and a screenshot of the current phone screen.
@@ -314,7 +313,7 @@ Example response:
         state.agent_logs.append("Agent execution finished.")
 
 @router.post("/assistant/start")
-async def start_assistant(goal: str, background_tasks: BackgroundTasks):
+async def start_assistant(goal: str, background_tasks: BackgroundTasks, max_steps: int = 15):
     if not OPENROUTER_API_KEY:
         raise HTTPException(status_code=500, detail="OpenRouter API Key not set in backend.")
     if state.agent_running:
@@ -322,8 +321,8 @@ async def start_assistant(goal: str, background_tasks: BackgroundTasks):
         
     state.agent_running = True
     state.agent_goal = goal
-    state.agent_task = asyncio.create_task(run_agent_loop(goal))
-    return {"status": "success", "message": f"Started assistant for: '{goal}'"}
+    state.agent_task = asyncio.create_task(run_agent_loop(goal, max_steps=max_steps))
+    return {"status": "success", "message": f"Started assistant for: '{goal}' (limit: {max_steps} steps)"}
 
 @router.get("/assistant/status")
 async def get_assistant_status():
