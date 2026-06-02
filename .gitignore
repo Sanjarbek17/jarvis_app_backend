@@ -20,3 +20,4 @@ screenshot_*.png
 
 # macOS system files
 .DS_Store
+server.log

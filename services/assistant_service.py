@@ -8,30 +8,31 @@ from core import state
 from core.config import AI_PROVIDER
 from services.llm_providers import get_llm_provider
 
-SYSTEM_PROMPT = """You are a phone assistant controller. You help users control their phone since their touchscreen is broken.
-You will be given the user's overall goal, the history of steps, and a screenshot of the current phone screen.
-Your job is to look at the screen and decide the next single step.
+SYSTEM_PROMPT = """You are an AI phone controller. You look at a phone screen, read the user's goal, and output the single next action to take.
 
-Available actions:
-- {"action": "open", "text": "string"} -> Opens an application by name (e.g. "Telegram", "Maps", "Chrome"). Prefer this over coordinates for opening apps.
-- {"action": "click", "label": "string"} -> Finds and clicks a button or text label matching this string on the screen (e.g. "Chats", "Search", "Next").
-- {"action": "tap", "x": float, "y": float} -> Taps a location on the screen. Coordinates must be normalized (0.0 to 1.0). Use this if no clear text/label is available to click, or if playing a game.
-- {"action": "swipe", "x": float, "y": float, "x2": float, "y2": float, "duration": int} -> Swipes from (x, y) to (x2, y2).
-- {"action": "write", "text": "string"} -> Types text into the focused input field.
-- {"action": "back"} -> Presses the back button.
-- {"action": "home"} -> Presses the home button.
-- {"action": "sleep", "duration": int} -> Wait/sleep for a duration in milliseconds.
-- {"action": "finish", "message": "string"} -> Stop when the goal is achieved or cannot proceed.
+AVAILABLE ACTIONS:
+Choose ONLY ONE action from this list.
 
-Prefer using semantic actions like "open" or "click" for standard apps.
-CRITICAL: For games or custom UIs where accessibility labels are missing and semantic clicks fail, you MUST use the "tap" action with normalized x, y coordinates instead.
+1. Open App: {"action": "open", "text": "App Name"}
+2. Click Text/Button: {"action": "click", "label": "Exact Text"} 
+3. Tap Coordinates: {"action": "tap", "x": 0.5, "y": 0.5} (Must use normalized coordinates 0.0 to 1.0)
+4. Swipe: {"action": "swipe", "x": 0.5, "y": 0.8, "x2": 0.5, "y2": 0.2, "duration": 500}
+5. Type Text: {"action": "write", "text": "words to type"}
+6. Go Back: {"action": "back"}
+7. Go Home: {"action": "home"}
+8. Wait: {"action": "sleep", "duration": 1000} (Duration in milliseconds)
+9. End Task: {"action": "finish", "message": "Task complete or failed"}
 
-Respond ONLY with a valid JSON object of the action, containing "thought" and "action" fields.
-Example response:
+STRICT RULES:
+1. OUTPUT FORMAT: You must output ONLY a valid JSON object containing a "thought" string and the chosen action fields. No extra text.
+2. GAMES: "click" and "open" do not work in games or custom UIs. You MUST use "tap" or "swipe".
+3. STUCK LOOPS: Look at the history. If you previously tried "click" or "open" and the screen did not change, you are stuck. You MUST switch to using "tap" with exact x/y coordinates.
+
+EXAMPLE OUTPUT:
 {
-  "thought": "I want to open Telegram, so I'll use the open app action directly.",
+  "thought": "The user wants to send a text message, so I need to open the messaging application.",
   "action": "open",
-  "text": "Telegram"
+  "text": "Messages"
 }
 """
 
@@ -98,10 +99,32 @@ async def run_agent_loop(goal: str, execute_action_cb: Callable[[dict, bool], Aw
                         lines = lines[:-1]
                     content_str = "\n".join(lines).strip()
                 decision = json.loads(content_str)
+                
+                # Repair: gemma3 sometimes puts "click, label: X" as the action value
+                action_val = decision.get("action", "")
+                if isinstance(action_val, str) and ", " in action_val and ":" in action_val:
+                    # Parse "click, label: Saved Messages" -> action=click, label=Saved Messages
+                    parts = action_val.split(", ", 1)
+                    decision["action"] = parts[0].strip()
+                    if ":" in parts[1]:
+                        key, val = parts[1].split(":", 1)
+                        decision[key.strip()] = val.strip()
+                        
             except Exception as e:
                 state.agent_logs.append(f"Error parsing VLM response: {e}")
                 state.agent_logs.append(f"Raw VLM response content: {res_content}")
-                break
+                # Try one more time with relaxed parsing
+                try:
+                    import re
+                    # Find the first { ... } block
+                    match = re.search(r'\{[^{}]*\}', res_content, re.DOTALL)
+                    if match:
+                        decision = json.loads(match.group())
+                        state.agent_logs.append("Recovered JSON from raw response.")
+                    else:
+                        break
+                except:
+                    break
                 
             thought = decision.get("thought", "")
             action = decision.get("action")
