@@ -86,7 +86,7 @@ async def run_agent_loop(goal: str, execute_action_cb: Callable[[dict, bool], Aw
             prompt += "\nDecide the next action based on the screenshot."
 
             payload = {
-                "model": "google/gemma-4-31b-it:free",
+                "model": "openrouter/free",
                 "max_tokens": 1000,
                 "messages": [
                     {
