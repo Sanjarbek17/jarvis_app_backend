@@ -85,7 +85,7 @@ async def run_agent_loop(goal: str, execute_action_cb: Callable[[dict, bool], Aw
             prompt += "\nDecide the next action based on the screenshot."
 
             payload = {
-                "model": "google/gemini-2.5-flash",
+                "model": "google/gemini-2.5-flash:free",
                 "max_tokens": 1000,
                 "messages": [
                     {
