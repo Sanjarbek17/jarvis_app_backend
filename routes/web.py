@@ -385,6 +385,7 @@ async def get_dashboard():
                 <div class="tab-container">
                     <button id="tab-actions-btn" class="tab-btn active" onclick="switchTab('actions')">Manual Controls</button>
                     <button id="tab-macros-btn" class="tab-btn" onclick="switchTab('macros')">Macros & Recording</button>
+                    <button id="tab-assistant-btn" class="tab-btn" onclick="switchTab('assistant')">AI Assistant</button>
                 </div>
 
                 <!-- Tab content: Manual Controls -->
@@ -437,6 +438,28 @@ async def get_dashboard():
                     <div class="panel-header" style="margin-top: 16px;">Saved Macros</div>
                     <div class="macro-list" id="saved-macros-list">
                         <!-- Macros populated dynamically -->
+                    </div>
+                </div>
+
+                <!-- Tab content: AI Assistant -->
+                <div id="tab-assistant" class="glass-card" style="display: none;">
+                    <div class="panel-header">AI Visual Assistant</div>
+                    
+                    <div class="control-row">
+                        <div class="input-group">
+                            <label>Command / Goal for the AI</label>
+                            <input type="text" id="assistant-prompt" placeholder="e.g. go home, open yandex maps and navigate to my office">
+                        </div>
+                    </div>
+                    
+                    <div class="control-row">
+                        <button id="start-assistant-btn" class="btn" onclick="startAssistant()">Run AI Agent</button>
+                        <button id="stop-assistant-btn" class="btn btn-secondary btn-danger" onclick="stopAssistant()" style="display: none;">Stop Agent</button>
+                    </div>
+
+                    <div class="panel-header" style="margin-top: 16px;">AI Assistant Run Logs</div>
+                    <div id="assistant-logs" class="logs-container" style="height: 250px;">
+                        <div class="log-line">AI is idle. Enter a command above to begin.</div>
                     </div>
                 </div>
             </div>
@@ -771,9 +794,81 @@ async def get_dashboard():
             function switchTab(tab) {
                 document.getElementById('tab-actions').style.display = tab === 'actions' ? 'flex' : 'none';
                 document.getElementById('tab-macros').style.display = tab === 'macros' ? 'flex' : 'none';
+                document.getElementById('tab-assistant').style.display = tab === 'assistant' ? 'flex' : 'none';
+                
                 document.getElementById('tab-actions-btn').className = tab === 'actions' ? 'tab-btn active' : 'tab-btn';
                 document.getElementById('tab-macros-btn').className = tab === 'macros' ? 'tab-btn active' : 'tab-btn';
+                document.getElementById('tab-assistant-btn').className = tab === 'assistant' ? 'tab-btn active' : 'tab-btn';
             }
+
+            // AI Assistant functions
+            async function startAssistant() {
+                let promptInput = document.getElementById('assistant-prompt');
+                let goal = promptInput.value.trim();
+                if (!goal) return alert("Please enter a command.");
+
+                document.getElementById('start-assistant-btn').style.display = 'none';
+                document.getElementById('stop-assistant-btn').style.display = 'inline-flex';
+
+                try {
+                    let res = await fetch('/assistant/start?goal=' + encodeURIComponent(goal), { method: 'POST' });
+                    let data = await res.json();
+                    if (data.status === 'success') {
+                        promptInput.value = '';
+                    } else {
+                        alert("Failed to start: " + data.detail);
+                    }
+                } catch(e) {
+                    alert("Error starting assistant: " + e);
+                }
+            }
+
+            async function stopAssistant() {
+                try {
+                    await fetch('/assistant/stop', { method: 'POST' });
+                } catch(e) {}
+            }
+
+            async function pollAssistantStatus() {
+                try {
+                    let res = await fetch('/assistant/status');
+                    let data = await res.json();
+                    
+                    let startBtn = document.getElementById('start-assistant-btn');
+                    let stopBtn = document.getElementById('stop-assistant-btn');
+                    let logsContainer = document.getElementById('assistant-logs');
+
+                    if (data.running) {
+                        startBtn.style.display = 'none';
+                        stopBtn.style.display = 'inline-flex';
+                    } else {
+                        startBtn.style.display = 'inline-flex';
+                        stopBtn.style.display = 'none';
+                    }
+
+                    if (data.logs && data.logs.length > 0) {
+                        logsContainer.innerHTML = '';
+                        data.logs.forEach(log => {
+                            let div = document.createElement('div');
+                            div.className = 'log-line';
+                            if (log.includes('AI Thought:')) {
+                                div.className = 'log-line highlight';
+                            } else if (log.includes('Error:')) {
+                                div.style.color = 'var(--danger)';
+                            }
+                            div.innerText = log;
+                            logsContainer.appendChild(div);
+                        });
+                        logsContainer.scrollTop = logsContainer.scrollHeight;
+                        
+                        if (data.running && document.getElementById('tab-assistant').style.display !== 'none') {
+                            document.getElementById('screen-img').src = '/screenshot?' + Date.now();
+                        }
+                    }
+                } catch(e) {}
+            }
+            setInterval(pollAssistantStatus, 2000);
+            pollAssistantStatus();
         </script>
     </body>
     </html>

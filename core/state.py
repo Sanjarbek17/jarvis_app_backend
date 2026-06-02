@@ -23,6 +23,12 @@ screenshot_event = asyncio.Event()
 # Memory Logs
 phone_logs: list[str] = []
 
+# Agent Background Loop state
+agent_running: bool = False
+agent_task = None
+agent_logs: list[str] = []
+agent_goal: str = ""
+
 def load_custom_commands() -> dict:
     if os.path.exists(CUSTOM_COMMANDS_FILE):
         try:

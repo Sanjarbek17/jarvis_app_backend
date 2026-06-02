@@ -1,7 +1,10 @@
 import json
+import base64
 import asyncio
-from fastapi import APIRouter, HTTPException
+import urllib.request
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from core import state
+from core.config import OPENROUTER_API_KEY
 from models import CommandModel
 
 router = APIRouter()
@@ -70,7 +73,6 @@ async def execute_command(command: CommandModel):
 
     try:
         payload = command.model_dump(exclude_none=True)
-        # remove backend routing field from target payload
         if "send_to_helper" in payload:
             del payload["send_to_helper"]
 
@@ -119,7 +121,203 @@ async def execute_custom(name: str, send_to_helper: bool = False):
         else:
             print(f"Step {i+1}: action '{action}'")
             await relay_step(step, send_to_helper=send_to_helper)
-            # Default sleep between actions
             await asyncio.sleep(1.0)
             
     return {"status": "success", "message": f"Custom command '{name}' completed execution"}
+
+# --- AI Assistant Background Loop ---
+
+async def run_agent_loop(goal: str):
+    state.agent_logs = [f"Starting agent for goal: '{goal}'"]
+    history = []
+    max_steps = 15
+    
+    SYSTEM_PROMPT = """You are a phone assistant controller. You help users control their phone since their touchscreen is broken.
+You will be given the user's overall goal, the history of steps, and a screenshot of the current phone screen.
+Your job is to look at the screen and decide the next single step.
+
+Available actions:
+- {"action": "tap", "x": float, "y": float} -> Taps a location on the screen. Coordinates must be normalized (0.0 to 1.0).
+- {"action": "swipe", "x": float, "y": float, "x2": float, "y2": float, "duration": int} -> Swipes from (x, y) to (x2, y2).
+- {"action": "write", "text": "string"} -> Types text into the focused input field.
+- {"action": "back"} -> Presses the back button.
+- {"action": "home"} -> Presses the home button.
+- {"action": "sleep", "duration": int} -> Wait/sleep for a duration in milliseconds.
+- {"action": "finish", "message": "string"} -> Stop when the goal is achieved or cannot proceed.
+
+Respond ONLY with a valid JSON object of the action, containing "thought" and "action" fields.
+Example response:
+{
+  "thought": "I need to open the Maps app, which is located in the middle-left of the screen.",
+  "action": "tap",
+  "x": 0.5,
+  "y": 0.4
+}
+"""
+
+    try:
+        for step_num in range(1, max_steps + 1):
+            if not state.agent_running:
+                state.agent_logs.append("Agent stopped by user.")
+                break
+                
+            state.agent_logs.append(f"Step {step_num}: Capturing screenshot...")
+            
+            conn = state.active_connection
+            if conn is None:
+                state.agent_logs.append("Error: Main phone is not connected.")
+                break
+                
+            state.latest_screenshot = None
+            state.screenshot_event.clear()
+            await conn.send_text(json.dumps({"action": "screenshot"}))
+            
+            try:
+                await asyncio.wait_for(state.screenshot_event.wait(), timeout=10.0)
+            except asyncio.TimeoutError:
+                state.agent_logs.append("Error: Screenshot timed out.")
+                break
+                
+            if state.latest_screenshot is None:
+                state.agent_logs.append("Error: Screenshot data was empty.")
+                break
+                
+            b64_image = base64.b64encode(state.latest_screenshot).decode("utf-8")
+            
+            state.agent_logs.append(f"Step {step_num}: Querying OpenRouter...")
+            
+            headers = {
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "Content-Type": "application/json",
+            }
+            
+            prompt = f"Goal: {goal}\nSteps taken so far:\n"
+            for idx, step in enumerate(history):
+                prompt += f"{idx+1}. {step}\n"
+            prompt += "\nDecide the next action based on the screenshot."
+
+            payload = {
+                "model": "google/gemini-2.5-flash:free",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": SYSTEM_PROMPT
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": prompt
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{b64_image}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                "response_format": {"type": "json_object"}
+            }
+            
+            # Run the requests block in executor so it is non-blocking
+            loop = asyncio.get_event_loop()
+            res_content = None
+            try:
+                def call_api():
+                    req_data = json.dumps(payload).encode("utf-8")
+                    req = urllib.request.Request(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        data=req_data,
+                        headers=headers,
+                        method="POST"
+                    )
+                    with urllib.request.urlopen(req, timeout=25) as response:
+                        res_body = response.read().decode('utf-8')
+                        res_json = json.loads(res_body)
+                        return res_json["choices"][0]["message"]["content"]
+                
+                res_content = await loop.run_in_executor(None, call_api)
+            except Exception as e:
+                state.agent_logs.append(f"Error calling OpenRouter: {e}")
+                break
+                
+            if not res_content:
+                state.agent_logs.append("Error: Received empty response from OpenRouter.")
+                break
+                
+            try:
+                decision = json.loads(res_content)
+            except Exception as e:
+                state.agent_logs.append(f"Error parsing VLM response: {e}")
+                break
+                
+            thought = decision.get("thought", "")
+            action = decision.get("action")
+            
+            state.agent_logs.append(f"AI Thought: {thought}")
+            state.agent_logs.append(f"AI Decision: {action} ({ {k:v for k,v in decision.items() if k not in ['thought', 'action']} })")
+            
+            if action == "finish":
+                state.agent_logs.append(f"Goal completed! Message: {decision.get('message', '')}")
+                break
+                
+            # Execute step
+            args = {k: v for k, v in decision.items() if k not in ["thought", "action"]}
+            
+            try:
+                if action == "sleep":
+                    duration = int(args.get("duration", 1000))
+                    await asyncio.sleep(duration / 1000.0)
+                else:
+                    await relay_step(decision, send_to_helper=False)
+            except Exception as e:
+                state.agent_logs.append(f"Error executing action: {e}")
+                break
+                
+            history.append(f"{action} ({args}) - {thought}")
+            await asyncio.sleep(3.0)
+            
+        else:
+            state.agent_logs.append("Reached maximum step limit.")
+            
+    except asyncio.CancelledError:
+        state.agent_logs.append("Agent task was cancelled.")
+    except Exception as e:
+        state.agent_logs.append(f"Unexpected agent error: {e}")
+    finally:
+        state.agent_running = False
+        state.agent_task = None
+        state.agent_logs.append("Agent execution finished.")
+
+@router.post("/assistant/start")
+async def start_assistant(goal: str, background_tasks: BackgroundTasks):
+    if not OPENROUTER_API_KEY:
+        raise HTTPException(status_code=500, detail="OpenRouter API Key not set in backend.")
+    if state.agent_running:
+        raise HTTPException(status_code=400, detail="An assistant task is already running.")
+        
+    state.agent_running = True
+    state.agent_goal = goal
+    state.agent_task = asyncio.create_task(run_agent_loop(goal))
+    return {"status": "success", "message": f"Started assistant for: '{goal}'"}
+
+@router.get("/assistant/status")
+async def get_assistant_status():
+    return {
+        "running": state.agent_running,
+        "goal": state.agent_goal,
+        "logs": state.agent_logs
+    }
+
+@router.post("/assistant/stop")
+async def stop_assistant():
+    if not state.agent_running:
+        return {"status": "success", "message": "No assistant task was running."}
+        
+    state.agent_running = False
+    if state.agent_task:
+        state.agent_task.cancel()
+    return {"status": "success", "message": "Assistant task stopped."}
