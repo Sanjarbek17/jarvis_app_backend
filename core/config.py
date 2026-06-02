@@ -20,3 +20,6 @@ if os.path.exists(env_path):
                     print(f"Error parsing line in .env: {line} - {e}")
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
+AI_PROVIDER = os.environ.get("AI_PROVIDER", "openrouter").lower()
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2-vision")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")

@@ -5,7 +5,8 @@ import urllib.request
 import urllib.error
 from typing import Callable, Awaitable
 from core import state
-from core.config import OPENROUTER_API_KEY
+from core.config import AI_PROVIDER
+from services.llm_providers import get_llm_provider
 
 SYSTEM_PROMPT = """You are a phone assistant controller. You help users control their phone since their touchscreen is broken.
 You will be given the user's overall goal, the history of steps, and a screenshot of the current phone screen.
@@ -73,86 +74,18 @@ async def run_agent_loop(goal: str, execute_action_cb: Callable[[dict, bool], Aw
                 
             b64_image = base64.b64encode(state.latest_screenshot).decode("utf-8")
             
-            state.agent_logs.append(f"Step {step_num}: Querying OpenRouter...")
-            
-            headers = {
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "Content-Type": "application/json",
-            }
+            state.agent_logs.append(f"Step {step_num}: Querying AI model using '{AI_PROVIDER}' provider...")
             
             prompt = f"Goal: {goal}\nSteps taken so far:\n"
             for idx, step in enumerate(history):
                 prompt += f"{idx+1}. {step}\n"
             prompt += "\nDecide the next action based on the screenshot."
+            
+            provider = get_llm_provider(AI_PROVIDER)
+            res_content = await provider.query_model(SYSTEM_PROMPT, prompt, b64_image)
 
-            payload = {
-                "model": "openrouter/free",
-                "max_tokens": 1000,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": SYSTEM_PROMPT
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": prompt
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": f"data:image/png;base64,{b64_image}"
-                                }
-                            }
-                        ]
-                    }
-                ],
-                "response_format": {"type": "json_object"}
-            }
-            
-            # Run the requests block in executor so it is non-blocking
-            loop = asyncio.get_event_loop()
-            res_content = None
-            max_retries = 3
-            
-            for attempt in range(max_retries):
-                try:
-                    def call_api():
-                        req_data = json.dumps(payload).encode("utf-8")
-                        req = urllib.request.Request(
-                            "https://openrouter.ai/api/v1/chat/completions",
-                            data=req_data,
-                            headers=headers,
-                            method="POST"
-                        )
-                        with urllib.request.urlopen(req, timeout=25) as response:
-                            res_body = response.read().decode('utf-8')
-                            res_json = json.loads(res_body)
-                            return res_json["choices"][0]["message"]["content"]
-                    
-                    res_content = await loop.run_in_executor(None, call_api)
-                    break  # Success
-                except urllib.error.HTTPError as e:
-                    if e.code == 429:
-                        wait_time = 5.0 * (attempt + 1)
-                        state.agent_logs.append(f"Rate limited (429). Retrying in {wait_time}s (Attempt {attempt + 1}/{max_retries})...")
-                        await asyncio.sleep(wait_time)
-                        continue
-                    else:
-                        state.agent_logs.append(f"Error calling OpenRouter: HTTP Error {e.code}: {e.reason}")
-                        break
-                except Exception as e:
-                    state.agent_logs.append(f"Error calling OpenRouter: {e}")
-                    break
-            
-            if res_content is None and attempt == max_retries - 1:
-                state.agent_logs.append("Error: Exceeded maximum retries for OpenRouter API.")
-                break
-                
             if not res_content:
-                state.agent_logs.append("Error: Received empty response from OpenRouter.")
+                state.agent_logs.append("Error: Received empty response from the AI provider.")
                 break
                 
             try:
