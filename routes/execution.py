@@ -125,6 +125,17 @@ async def execute_custom(name: str, send_to_helper: bool = False):
             
     return {"status": "success", "message": f"Custom command '{name}' completed execution"}
 
+@router.post("/reset_accessibility")
+async def reset_accessibility():
+    conn = state.active_helper_connection
+    if conn is None:
+        raise HTTPException(status_code=503, detail="Helper app is not connected.")
+    try:
+        await conn.send_text(json.dumps({"action": "reset_accessibility"}))
+        return {"status": "success", "message": "Reset accessibility command sent to helper app"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # --- AI Assistant Background Loop ---
 
 async def run_agent_loop(goal: str):
@@ -197,7 +208,8 @@ Example response:
             prompt += "\nDecide the next action based on the screenshot."
 
             payload = {
-                "model": "google/gemini-2.5-flash:free",
+                "model": "google/gemini-2.5-flash",
+                "max_tokens": 1000,
                 "messages": [
                     {
                         "role": "system",
@@ -249,9 +261,18 @@ Example response:
                 break
                 
             try:
-                decision = json.loads(res_content)
+                content_str = res_content.strip()
+                if content_str.startswith("```"):
+                    lines = content_str.splitlines()
+                    if lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].startswith("```"):
+                        lines = lines[:-1]
+                    content_str = "\n".join(lines).strip()
+                decision = json.loads(content_str)
             except Exception as e:
                 state.agent_logs.append(f"Error parsing VLM response: {e}")
+                state.agent_logs.append(f"Raw VLM response content: {res_content}")
                 break
                 
             thought = decision.get("thought", "")

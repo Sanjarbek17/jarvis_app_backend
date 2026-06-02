@@ -372,13 +372,18 @@ async def get_dashboard():
 
             <!-- Right Pane: Actions and Custom Commands -->
             <div style="display: flex; flex-direction: column; gap: 24px;">
-                <!-- Global Destination Routing Selector -->
-                <div class="glass-card" style="padding: 16px 24px; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px;">
-                    <span style="font-weight: 600; font-size: 15px;">Route Commands via Helper App</span>
-                    <label class="switch" style="position: relative; display: inline-block; width: 50px; height: 26px;">
-                        <input type="checkbox" id="send-to-helper-chk" style="opacity: 0; width: 0; height: 0;">
-                        <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); transition: .4s; border-radius: 34px; border: 1px solid var(--card-border);"></span>
-                    </label>
+                <!-- Global Destination Routing Selector and Accessibility Reset -->
+                <div class="glass-card" style="padding: 16px 24px; gap: 16px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                        <span style="font-weight: 600; font-size: 15px;">Route Commands via Helper App</span>
+                        <label class="switch" style="position: relative; display: inline-block; width: 50px; height: 26px;">
+                            <input type="checkbox" id="send-to-helper-chk" style="opacity: 0; width: 0; height: 0;">
+                            <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); transition: .4s; border-radius: 34px; border: 1px solid var(--card-border);"></span>
+                        </label>
+                    </div>
+                    <button class="btn btn-secondary" onclick="resetAccessibility()" style="width: 100%; font-size: 14px; padding: 10px; border: 1px solid rgba(255, 68, 68, 0.3); color: #ff5555; background: rgba(255, 50, 50, 0.05);">
+                        Reset Main App Accessibility
+                    </button>
                 </div>
 
                 <!-- Tab Controls -->
@@ -867,6 +872,21 @@ async def get_dashboard():
                     }
                 } catch(e) {}
             }
+            async function resetAccessibility() {
+                if (!confirm('Are you sure you want to trigger accessibility reset/toggle on the phone for the main app?')) return;
+                try {
+                    let res = await fetch('/reset_accessibility', { method: 'POST' });
+                    let data = await res.json();
+                    if (res.ok) {
+                        alert(data.message || 'Reset command sent successfully');
+                    } else {
+                        alert('Error: ' + (data.detail || 'Failed to send reset command'));
+                    }
+                } catch(e) {
+                    alert('Error triggering reset: ' + e);
+                }
+            }
+
             setInterval(pollAssistantStatus, 2000);
             pollAssistantStatus();
         </script>

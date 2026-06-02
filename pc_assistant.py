@@ -80,7 +80,8 @@ def query_agent(goal: str, history: list, base64_image: str) -> dict:
     prompt += "\nDecide the next action based on the screenshot."
 
     payload = {
-        "model": "google/gemini-2.5-flash:free",
+        "model": "google/gemini-2.5-flash",
+        "max_tokens": 1000,
         "messages": [
             {
                 "role": "system",
@@ -115,7 +116,15 @@ def query_agent(goal: str, history: list, base64_image: str) -> dict:
         if res.status_code == 200:
             res_json = res.json()
             content = res_json["choices"][0]["message"]["content"]
-            return json.loads(content)
+            content_str = content.strip()
+            if content_str.startswith("```"):
+                lines = content_str.splitlines()
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].startswith("```"):
+                    lines = lines[:-1]
+                content_str = "\n".join(lines).strip()
+            return json.loads(content_str)
         else:
             print(f"OpenRouter API error: {res.status_code} - {res.text}")
             return {}
