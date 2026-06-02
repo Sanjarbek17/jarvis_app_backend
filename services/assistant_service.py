@@ -27,12 +27,14 @@ STRICT RULES:
 1. OUTPUT FORMAT: You must output ONLY a valid JSON object containing a "thought" string and the chosen action fields. No extra text.
 2. GAMES: "click" and "open" do not work in games or custom UIs. You MUST use "tap" or "swipe".
 3. STUCK LOOPS: Look at the history. If you previously tried "click" or "open" and the screen did not change, you are stuck. You MUST switch to using "tap" with exact x/y coordinates.
+4. FIXING MISTAKES (CRITICAL): If your last action was a "tap" and the screen did not change, your coordinates were WRONG. You MUST NOT use the exact same coordinates again. Adjust the "x" or "y" values by at least 0.1 or 0.2 to try a new location.
 
 EXAMPLE OUTPUT:
 {
-  "thought": "The user wants to send a text message, so I need to open the messaging application.",
-  "action": "open",
-  "text": "Messages"
+  "thought": "My previous tap at x: 0.5, y: 0.2 did not work. I will adjust the y coordinate down slightly to try and hit the button.",
+  "action": "tap",
+  "x": 0.5,
+  "y": 0.3
 }
 """
 
