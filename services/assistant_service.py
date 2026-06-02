@@ -2,6 +2,7 @@ import json
 import base64
 import asyncio
 import urllib.request
+import urllib.error
 from typing import Callable, Awaitable
 from core import state
 from core.config import OPENROUTER_API_KEY
@@ -114,23 +115,40 @@ async def run_agent_loop(goal: str, execute_action_cb: Callable[[dict, bool], Aw
             # Run the requests block in executor so it is non-blocking
             loop = asyncio.get_event_loop()
             res_content = None
-            try:
-                def call_api():
-                    req_data = json.dumps(payload).encode("utf-8")
-                    req = urllib.request.Request(
-                        "https://openrouter.ai/api/v1/chat/completions",
-                        data=req_data,
-                        headers=headers,
-                        method="POST"
-                    )
-                    with urllib.request.urlopen(req, timeout=25) as response:
-                        res_body = response.read().decode('utf-8')
-                        res_json = json.loads(res_body)
-                        return res_json["choices"][0]["message"]["content"]
-                
-                res_content = await loop.run_in_executor(None, call_api)
-            except Exception as e:
-                state.agent_logs.append(f"Error calling OpenRouter: {e}")
+            max_retries = 3
+            
+            for attempt in range(max_retries):
+                try:
+                    def call_api():
+                        req_data = json.dumps(payload).encode("utf-8")
+                        req = urllib.request.Request(
+                            "https://openrouter.ai/api/v1/chat/completions",
+                            data=req_data,
+                            headers=headers,
+                            method="POST"
+                        )
+                        with urllib.request.urlopen(req, timeout=25) as response:
+                            res_body = response.read().decode('utf-8')
+                            res_json = json.loads(res_body)
+                            return res_json["choices"][0]["message"]["content"]
+                    
+                    res_content = await loop.run_in_executor(None, call_api)
+                    break  # Success
+                except urllib.error.HTTPError as e:
+                    if e.code == 429:
+                        wait_time = 5.0 * (attempt + 1)
+                        state.agent_logs.append(f"Rate limited (429). Retrying in {wait_time}s (Attempt {attempt + 1}/{max_retries})...")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        state.agent_logs.append(f"Error calling OpenRouter: HTTP Error {e.code}: {e.reason}")
+                        break
+                except Exception as e:
+                    state.agent_logs.append(f"Error calling OpenRouter: {e}")
+                    break
+            
+            if res_content is None and attempt == max_retries - 1:
+                state.agent_logs.append("Error: Exceeded maximum retries for OpenRouter API.")
                 break
                 
             if not res_content:
